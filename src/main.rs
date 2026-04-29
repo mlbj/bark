@@ -64,6 +64,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Save file
             fs::write(filename, content)?;
         }
+
+        Commands::Tag { id, tag } => {
+            db::add_tag_to_reference(&conn, &id, &tag)?;
+        }
     }
 
     Ok(())

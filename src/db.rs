@@ -22,6 +22,19 @@ pub fn init_db(path: &str) -> Result<Connection> {
             file_id TEXT,
             PRIMARY KEY (reference_id, file_id)
         );
+
+        CREATE TABLE IF NOT EXISTS tags (
+            id TEXT PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS reference_tags (
+            reference_id TEXT,
+            tag_id TEXT,
+            PRIMARY KEY (reference_id, tag_id),
+            FOREIGN KEY (reference_id) REFERENCES refs(id),
+            FOREIGN KEY (tag_id) REFERENCES tags(id)
+        );
         "
     )?;
 
@@ -62,4 +75,38 @@ pub fn get_reference(conn: &Connection, id: &str) -> Result<String> {
         [id],
         |row| row.get::<_, String>(0),
     )
+}
+
+
+pub fn add_tag_to_reference(conn: &Connection,
+                            reference_id: &str,
+                            tag_name: &str) -> Result<()> {
+    // Get or create tag
+    let tag_id = get_or_create_tag(conn, tag_name)?;
+
+    conn.execute(
+        "INSERT OR IGNORE INTO reference_tags (reference_id, tag_id)
+         VALUES (?1, ?2)",
+        (reference_id, tag_id),
+    )?;
+
+    Ok(())
+}
+
+fn get_or_create_tag(conn: &Connection, name: &str) -> Result<String> {
+    let mut stmt = conn.prepare("SELECT id FROM tags WHERE name = ?1")?;
+    let mut rows = stmt.query([name])?;
+
+    if let Some(row) = rows.next()? {
+        return row.get(0);
+    }
+
+    let id = Uuid::new_v4().to_string();
+
+    conn.execute(
+        "INSERT INTO tags (id, name) VALUES (?1, ?2)",
+        (&id, name),
+    )?;
+
+    Ok(id)
 }
