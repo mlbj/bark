@@ -11,6 +11,7 @@ pub fn init_db(path: &str) -> Result<Connection> {
             bibtex TEXT NOT NULL,
             entry_type TEXT NOT NULL,
             entry_key TEXT NOT NULL,
+            title TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -49,10 +50,12 @@ pub fn add_reference(conn: &Connection, bibtex: &str) -> Result<String> {
     let (entry_type, entry_key) =
         parse_bibtex_header(bibtex).expect("Invalid BibTeX");
 
+    let title = extract_field_bibtex(bibtex, "title");
+
     conn.execute(
-        "INSERT INTO refs (id, bibtex, entry_type, entry_key)
-        VALUES (?1, ?2, ?3, ?4)",
-        (&id, bibtex, &entry_type, &entry_key),
+        "INSERT INTO refs (id, bibtex, entry_type, entry_key, title)
+        VALUES (?1, ?2, ?3, ?4, ?5)",
+        (&id, bibtex, &entry_type, &entry_key, &title),
     )?;
 
     Ok(id)
@@ -60,14 +63,21 @@ pub fn add_reference(conn: &Connection, bibtex: &str) -> Result<String> {
 
 pub fn list_references(conn: &Connection) -> Result<Vec<(String, String)>> {
     let mut stmt = conn.prepare(
-        "SELECT id, entry_type, entry_key FROM refs"
+        "SELECT id, entry_type, entry_key, title FROM refs"
     )?;
 
     let rows = stmt.query_map([], |row| {
         let id: String = row.get(0)?;
         let ty: String = row.get(1)?;
         let key: String = row.get(2)?;
-        Ok((id, format!("@{}{{{},...", ty, key)))
+        let title: Option<String> = row.get(3)?;
+
+        let preview = match title {
+            Some(t) => format!("@{}{{{},...}} — {}", ty, key, t),
+            None => format!("@{}{{{},...}}", ty, key)
+        };
+
+        Ok((id, preview))
     })?;
 
     let mut result = Vec::new();
@@ -141,6 +151,25 @@ pub fn get_tags_for_reference(conn: &Connection, reference_id: &str) -> Result<V
     Ok(tags)
 }
 
+
+fn extract_field_bibtex(bibtex: &str, field: &str) -> Option<String> {
+    for line in bibtex.lines() {
+        let line = line.trim();
+
+        if line.to_lowercase().starts_with(&format!("{} =", field)) {
+            let value = line.split('=').nth(1)?.trim();
+
+            // Remove comma/braces crudely
+            return Some(
+                value.trim_matches(|c| c == '{' || c == '}' || c == ',')
+                     .trim()
+                     .to_string()
+                );
+        }
+    }
+    None
+}
+
 fn parse_bibtex_header(bibtex: &str) -> Option<(String, String)> {
     let first_line = bibtex.lines().next()?.trim();
 
@@ -159,3 +188,5 @@ fn parse_bibtex_header(bibtex: &str) -> Option<(String, String)> {
 
     Some((entry_type, entry_key))
 }
+
+
