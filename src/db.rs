@@ -9,6 +9,8 @@ pub fn init_db(path: &str) -> Result<Connection> {
         CREATE TABLE IF NOT EXISTS refs (
             id TEXT PRIMARY KEY,
             bibtex TEXT NOT NULL,
+            entry_type TEXT NOT NULL,
+            entry_key TEXT NOT NULL,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -44,9 +46,13 @@ pub fn init_db(path: &str) -> Result<Connection> {
 pub fn add_reference(conn: &Connection, bibtex: &str) -> Result<String> {
     let id = Uuid::new_v4().to_string();
 
+    let (entry_type, entry_key) =
+        parse_bibtex_header(bibtex).expect("Invalid BibTeX");
+
     conn.execute(
-        "INSERT INTO refs (id, bibtex) VALUES (?1, ?2)",
-        (&id, bibtex),
+        "INSERT INTO refs (id, bibtex, entry_type, entry_key)
+        VALUES (?1, ?2, ?3, ?4)",
+        (&id, bibtex, &entry_type, &entry_key),
     )?;
 
     Ok(id)
@@ -54,11 +60,14 @@ pub fn add_reference(conn: &Connection, bibtex: &str) -> Result<String> {
 
 pub fn list_references(conn: &Connection) -> Result<Vec<(String, String)>> {
     let mut stmt = conn.prepare(
-        "SELECT id, substr(bibtex, 1, 60) FROM refs"
+        "SELECT id, entry_type, entry_key FROM refs"
     )?;
 
     let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        let id: String = row.get(0)?;
+        let ty: String = row.get(1)?;
+        let key: String = row.get(2)?;
+        Ok((id, format!("@{}{{{},...", ty, key)))
     })?;
 
     let mut result = Vec::new();
@@ -76,7 +85,6 @@ pub fn get_reference(conn: &Connection, id: &str) -> Result<String> {
         |row| row.get::<_, String>(0),
     )
 }
-
 
 pub fn add_tag_to_reference(conn: &Connection,
                             reference_id: &str,
@@ -131,4 +139,23 @@ pub fn get_tags_for_reference(conn: &Connection, reference_id: &str) -> Result<V
     }
 
     Ok(tags)
+}
+
+fn parse_bibtex_header(bibtex: &str) -> Option<(String, String)> {
+    let first_line = bibtex.lines().next()?.trim();
+
+    // Expect something like: @book{key,
+    if !first_line.starts_with('@') {
+        return None;
+    }
+
+    let after_at = &first_line[1..];
+    let mut parts = after_at.splitn(2, '{');
+
+    let entry_type = parts.next()?.trim().to_string();
+    let rest = parts.next()?;
+
+    let entry_key = rest.split(',').next()?.trim().to_string();
+
+    Some((entry_type, entry_key))
 }
