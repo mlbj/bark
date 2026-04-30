@@ -38,15 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::List => {
             let refs = db::list_references(&conn)?;
             for (id, preview) in refs {
-                print!("{} | {}", id, preview);
-
-                // Print tags for that reference_id
-                let tags = db::get_tags_for_reference(&conn, &id)?;
-
-                for tag in tags {
-                    print!("{}, ", tag);
-                }
-                println!("");
+                println!("{} | {}", id, preview);
             }
         }
 

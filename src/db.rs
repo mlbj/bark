@@ -63,7 +63,18 @@ pub fn add_reference(conn: &Connection, bibtex: &str) -> Result<String> {
 
 pub fn list_references(conn: &Connection) -> Result<Vec<(String, String)>> {
     let mut stmt = conn.prepare(
-        "SELECT id, entry_type, entry_key, title FROM refs"
+        "
+        SELECT
+            r.id,
+            r.entry_type,
+            r.entry_key,
+            r.title,
+            GROUP_CONCAT(t.name)
+        FROM refs r
+        LEFT JOIN reference_tags rt ON r.id = rt.reference_id
+        LEFT JOIN tags t ON rt.tag_id = t.id
+        GROUP BY r.id
+        "
     )?;
 
     let rows = stmt.query_map([], |row| {
@@ -71,11 +82,17 @@ pub fn list_references(conn: &Connection) -> Result<Vec<(String, String)>> {
         let ty: String = row.get(1)?;
         let key: String = row.get(2)?;
         let title: Option<String> = row.get(3)?;
+        let tags: Option<String> = row.get(4)?;
 
-        let preview = match title {
+        let mut preview = match title {
             Some(t) => format!("@{}{{{},...}} — {}", ty, key, t),
             None => format!("@{}{{{},...}}", ty, key)
         };
+
+        if let Some(tag_str) = tags {
+            let formatted = tag_str.replace(",", ", ");
+            preview.push_str(&format!(" [{}]", formatted));
+        }
 
         Ok((id, preview))
     })?;
@@ -188,5 +205,3 @@ fn parse_bibtex_header(bibtex: &str) -> Option<(String, String)> {
 
     Some((entry_type, entry_key))
 }
-
-
