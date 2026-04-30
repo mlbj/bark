@@ -38,7 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::List => {
             let refs = db::list_references(&conn)?;
             for (id, preview) in refs {
-                println!("{} | {}", id, preview);
+                let short_id = &id[..8];
+                println!("({})  {}", short_id, preview);
             }
         }
 

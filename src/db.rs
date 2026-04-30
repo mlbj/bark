@@ -10,7 +10,7 @@ pub fn init_db(path: &str) -> Result<Connection> {
             id TEXT PRIMARY KEY,
             bibtex TEXT NOT NULL,
             entry_type TEXT NOT NULL,
-            entry_key TEXT NOT NULL,
+            entry_key TEXT NOT NULL UNIQUE,
             title TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
@@ -66,26 +66,27 @@ pub fn list_references(conn: &Connection) -> Result<Vec<(String, String)>> {
         "
         SELECT
             r.id,
-            r.entry_type,
             r.entry_key,
+            r.entry_type,
             r.title,
             GROUP_CONCAT(t.name)
         FROM refs r
         LEFT JOIN reference_tags rt ON r.id = rt.reference_id
         LEFT JOIN tags t ON rt.tag_id = t.id
         GROUP BY r.id
+        ORDER BY r.created_at DESC
         "
     )?;
 
     let rows = stmt.query_map([], |row| {
         let id: String = row.get(0)?;
-        let ty: String = row.get(1)?;
-        let key: String = row.get(2)?;
+        let key: String = row.get(1)?;
+        let ty: String = row.get(2)?;
         let title: Option<String> = row.get(3)?;
         let tags: Option<String> = row.get(4)?;
 
         let mut preview = match title {
-            Some(t) => format!("@{}{{{},...}} — {}", ty, key, t),
+            Some(t) => format!("{}:  {}", key, t),
             None => format!("@{}{{{},...}}", ty, key)
         };
 
