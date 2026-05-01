@@ -62,33 +62,37 @@ pub fn add_reference(conn: &Connection, bibtex: &str) -> Result<String> {
     Ok(id)
 }
 
-pub fn list_references(conn: &Connection) -> Result<Vec<(String,
-                                                         String,
-                                                         Option<String>,
-                                                         Option<String>)>> {
+pub fn list_references(
+    conn: &Connection,
+    tag: Option<&str>,
+) -> Result<Vec<(String, String, Option<String>, Option<String>)>> {
+
     let mut stmt = conn.prepare(
         "
         SELECT
             r.id,
             r.entry_key,
-            r.entry_type,
             r.title,
             GROUP_CONCAT(t.name)
         FROM refs r
         LEFT JOIN reference_tags rt ON r.id = rt.reference_id
         LEFT JOIN tags t ON rt.tag_id = t.id
+        WHERE (?1 IS NULL OR r.id IN (
+            SELECT rt2.reference_id
+            FROM reference_tags rt2
+            INNER JOIN tags t2 ON rt2.tag_id = t2.id
+            WHERE t2.name = ?1
+        ))
         GROUP BY r.id
         ORDER BY r.created_at DESC
         "
     )?;
 
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map([tag], |row| {
         let id: String = row.get(0)?;
         let key: String = row.get(1)?;
-        let _ty: String = row.get(2)?;
-        let title: Option<String> = row.get(3)?;
-        let tags: Option<String> = row.get(4)?;
-
+        let title: Option<String> = row.get(2)?;
+        let tags: Option<String> = row.get(3)?;
         Ok((id, key, title, tags))
     })?;
 

@@ -35,8 +35,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Saved as {}", id);
         }
 
-        Commands::List => {
-            let refs = db::list_references(&conn)?;
+        Commands::List { tag } => {
+            let refs = db::list_references(&conn, tag.as_deref())?;
             
             // Compute column widths
             let max_key = refs.iter().map(|(_, key, _, _)| key.len()).max().unwrap_or(0);
@@ -69,12 +69,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", bib);
         }
 
-        Commands::Export => {
+        Commands::Export { tag } => {
             let filename = "references.bib";
             let mut content = String::new();
             
             // Fill content
-            let refs = db::list_references(&conn)?;
+            let refs = db::list_references(&conn, tag.as_deref())?;
             for (id, _, _, _) in refs {
                 let bib = db::get_reference(&conn, &id)?;
                 content.push_str(&bib);

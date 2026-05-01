@@ -10,9 +10,9 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     Add,
-    List,
+    List { tag: Option<String> },
     Show { input: String },
-    Export,
+    Export { tag: Option<String> },
     Import { filename: String },
     Tag { input: String, tag: String }
 }
