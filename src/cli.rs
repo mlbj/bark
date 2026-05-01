@@ -13,5 +13,6 @@ pub enum Commands {
     List,
     Show { input: String },
     Export,
+    Import { filename: String },
     Tag { input: String, tag: String }
 }

@@ -67,6 +67,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fs::write(filename, content)?;
         }
 
+        Commands::Import { filename } => {
+            db::import_bibtex(&conn, &filename)?;
+        }
+
         Commands::Tag { input, tag } => {
             let id = db::resolve_reference(&conn, &input)?;
             db::add_tag_to_reference(&conn, &id, &tag)?;

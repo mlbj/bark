@@ -48,7 +48,8 @@ pub fn add_reference(conn: &Connection, bibtex: &str) -> Result<String> {
     let id = Uuid::new_v4().to_string();
 
     let (entry_type, entry_key) =
-        parse_bibtex_header(bibtex).expect("Invalid BibTeX");
+        parse_bibtex_header(bibtex)
+            .ok_or_else(|| rusqlite::Error::InvalidQuery)?;
 
     let title = extract_field_bibtex(bibtex, "title");
 
@@ -246,4 +247,71 @@ pub fn resolve_reference(conn: &Connection, input: &str) -> Result<String> {
         1 => Ok(matches[0].clone()),
         _ => Err(rusqlite::Error::InvalidQuery), // ambiguous
     }
+}
+
+pub fn import_bibtex(conn: &Connection , path: &str) -> Result<()> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|_| rusqlite::Error::InvalidQuery)?;
+
+    let entries = split_bibtex_entries(&content);
+
+    let mut added = 0;
+    let mut skipped = 0;
+
+    for entry in entries {
+        // Validate header before inserting
+        let (etry_type, entry_key) = match parse_bibtex_header(&entry) {
+            Some(v) => v,
+            None => {
+                eprintln!("Skipping invalid entry");
+                skipped += 1;
+                continue
+            }
+        };
+
+        match add_reference(conn, &entry) {
+            Ok(_) => {
+                println!("[Ok] {}", entry_key);
+                added += 1;
+            }
+            Err(e) => {
+                eprintln!("[ERROR] {}: {}", entry_key, e);
+                skipped += 1;
+            }
+        }
+    }
+    
+    println!("\nImported: {} | Skipped: {}", added, skipped);
+    Ok(())
+}
+
+fn split_bibtex_entries(input: &str) -> Vec<String> {
+    let mut entries = Vec::new();
+    let mut current = String::new();
+    let mut brace_level = 0;
+    let mut in_entry = false;
+
+    for c in input.chars() {
+        if c == '@' && !in_entry {
+            in_entry = true;
+            current.clear();
+        }
+
+        if in_entry {
+            current.push(c);
+
+            if c == '{' {
+                brace_level += 1;
+            } else if c == '}' {
+                brace_level -= 1;
+
+                if brace_level == 0 {
+                    entries.push(current.trim().to_string());
+                    in_entry = false;
+                }
+            }
+        }
+    }
+
+    entries
 }
