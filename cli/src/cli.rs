@@ -128,10 +128,13 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum SyncAction {
+    /// Show diff between local db and last synced bark.toml
+    Status,
+
     /// Force pull database from remote sync repository
     Restore,
 
-    /// Push local database to remote sync repository 
+    /// Push local database to remote sync repository
     Push,
 }
 
@@ -387,6 +390,7 @@ impl Cli {
 
             Commands::Sync { action } => {
                 match action {
+                    SyncAction::Status => sync::status(bark)?,
                     SyncAction::Restore => sync::restore(bark)?,
                     SyncAction::Push => sync::push(bark)?,
                 }
