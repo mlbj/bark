@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand, CommandFactory};
+use terminal_size::{terminal_size, Width};
 use clap_complete::{
     generate,
     shells::{Bash},
@@ -242,23 +243,25 @@ impl Cli {
 
                 let max_title = references
                     .iter()
-                    .map(|r| {
-                        r.title
-                            .as_deref()
-                            .unwrap_or("<no title>")
-                            .len()
-                    })
+                    .map(|r| r.title.as_deref().unwrap_or("<no title>").len())
                     .max()
                     .unwrap_or(0);
-                    
+
+                // 4 separators of 2 spaces each between/around the 4 columns
+                let other_cols = max_type + max_key + max_tags + 8;
+                let title_limit = terminal_size()
+                    .and_then(|(Width(w), _)| (w as usize).checked_sub(other_cols))
+                    .unwrap_or(max_title);
+                let title_width = max_title.min(title_limit);
 
                 for r in references {
-                    // Currently not used 
-                    //let short_id = &r.id[..8];
+                    let raw_title = r.title.unwrap_or_else(|| "<no title>".to_string());
+                    let title = if raw_title.len() > title_limit && title_limit > 3 {
+                        format!("{}...", &raw_title[..title_limit - 3])
+                    } else {
+                        raw_title
+                    };
 
-                    let title =
-                        r.title.unwrap_or_else(|| "<no title>".to_string());
-                    
                     let tags = if r.tags.is_empty() {
                         String::new()
                     } else {
@@ -266,14 +269,14 @@ impl Cli {
                     };
 
                     println!(
-                        "{:type_width$}  {:key_width$}  {:title_width$}  {:tags_width$}  ",
+                        "{:type_width$}  {:key_width$}  {:title_width$}  {:tags_width$}",
                         r.entry_type,
                         r.entry_key,
                         title,
                         tags,
                         type_width = max_type,
                         key_width = max_key,
-                        title_width = max_title,
+                        title_width = title_width,
                         tags_width = max_tags,
                     );
                 }
