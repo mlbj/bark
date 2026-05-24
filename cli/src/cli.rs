@@ -347,7 +347,18 @@ impl Cli {
                 let (kind, location) = service::get_content(conn, &input)?;
 
                 match kind.as_str() {
-                    "url" | "local" => {
+                    "url" => {
+                        let tmp_path: PathBuf = env::temp_dir().join("bark_tmp.pdf");
+                        std::process::Command::new("curl")
+                            .args(["-L", "-o"])
+                            .arg(&tmp_path)
+                            .arg(&location)
+                            .status()?;
+                        std::process::Command::new("xdg-open")
+                            .arg(&tmp_path)
+                            .spawn()?;
+                    }
+                    "local" => {
                         std::process::Command::new("xdg-open")
                             .arg(&location)
                             .spawn()?;
