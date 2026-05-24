@@ -26,8 +26,13 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Add a new reference (reads BibTeX from stdin)
-    Add,
+    /// Add a new reference (defaults to @article)
+    Add {
+        /// BibTeX entry type: article, book, misc, inproceedings, incollection,
+        /// phdthesis, mastersthesis, techreport, unpublished
+        #[arg(index = 1)]
+        entry_type: Option<String>,
+    },
 
     /// Remove a reference 
     Rm {
@@ -130,36 +135,39 @@ pub enum SyncAction {
     Push,
 }
 
+fn bibtex_template(entry_type: &str) -> String {
+    match entry_type.to_lowercase().as_str() {
+        "article" => "@article{key,\n  author = {},\n  title = {},\n  journal = {},\n  year = {},\n  volume = {},\n  pages = {},\n}\n".to_string(),
+        "book" => "@book{key,\n  author = {},\n  title = {},\n  publisher = {},\n  year = {},\n}\n".to_string(),
+        "inproceedings" | "conference" => "@inproceedings{key,\n  author = {},\n  title = {},\n  booktitle = {},\n  year = {},\n  pages = {},\n}\n".to_string(),
+        "incollection" => "@incollection{key,\n  author = {},\n  title = {},\n  booktitle = {},\n  publisher = {},\n  year = {},\n  pages = {},\n}\n".to_string(),
+        "phdthesis" => "@phdthesis{key,\n  author = {},\n  title = {},\n  school = {},\n  year = {},\n}\n".to_string(),
+        "mastersthesis" => "@mastersthesis{key,\n  author = {},\n  title = {},\n  school = {},\n  year = {},\n}\n".to_string(),
+        "techreport" => "@techreport{key,\n  author = {},\n  title = {},\n  institution = {},\n  year = {},\n  number = {},\n}\n".to_string(),
+        "unpublished" => "@unpublished{key,\n  author = {},\n  title = {},\n  note = {},\n  year = {},\n}\n".to_string(),
+        "misc" => "@misc{key,\n  author = {},\n  title = {},\n  howpublished = {},\n  year = {},\n  note = {},\n}\n".to_string(),
+        other => format!("@{}{{\n  key,\n  author = {{}},\n  title = {{}},\n  year = {{}},\n}}\n", other),
+    }
+}
+
 impl Cli {
     pub fn run(self, bark: &Bark) -> Result<(), Box<dyn std::error::Error>> {
         let conn = bark.conn();
 
         match self.command {
-            Commands::Add => {
+            Commands::Add { entry_type } => {
                 let editor = env::var("BARK_TEXT_EDITOR")
                     .unwrap_or_else(|_| "vim".to_string());
 
                 let tmp_path = env::temp_dir().join("bark_add.toml");
 
-                // Default TOML template
-                let template = r#"version = 1
+                let bibtex_body = bibtex_template(entry_type.as_deref().unwrap_or("article"));
+                let template = format!(
+                    "version = 1\n\n[[references]]\nid = \"\"\nbibtex = \"\"\"\n{}\"\"\"\ntags = []\n\n[references.content]\nkind = \"\"\nlocation = \"\"\n",
+                    bibtex_body
+                );
 
-[[references]]
-id = ""
-bibtex = """
-@article{key,
-  author = {},
-  title = {},
-  year = {},
-}"""
-tags = []
-
-[references.content]
-kind = ""
-location = ""
-"#;
-
-                fs::write(&tmp_path, template);
+                fs::write(&tmp_path, &template)?;
 
                 Command::new(&editor)
                     .arg(&tmp_path)
