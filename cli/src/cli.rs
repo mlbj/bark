@@ -421,14 +421,14 @@ _bark_custom()
     # complete subcommands
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W \
-            "add attach edit export import list open rm show completions complete" \
+            "add attach edit export import list open rm show tag sync completions complete" \
             -- "$cur"))
         return
     fi
 
     # complete reference keys
     case "$prev" in
-        open|show|rm|edit|attach|export)
+        open|show|rm|edit|attach|export|tag)
             COMPREPLY=(
                 $(compgen -W "$(bark complete refs "$cur")" -- "$cur")
             )
