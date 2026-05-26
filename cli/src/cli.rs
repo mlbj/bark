@@ -107,6 +107,12 @@ pub enum Commands {
         input: String,
     },
 
+    /// Edit or create a markdown note for a reference
+    Note {
+        /// Entry key, full id or short id
+        input: String,
+    },
+
     /// Sync bark library using a git repository
     Sync {
         /// Restore or push actions
@@ -391,6 +397,33 @@ impl Cli {
                 }
             }
 
+            Commands::Note { input } => {
+                let notes_dir = env::var("BARK_NOTES_DIR")
+                    .map_err(|_| "BARK_NOTES_DIR is not set")?;
+
+                let id = service::resolve_reference(conn, &input)?;
+                let filename = format!("{}.md", id);
+                let notes_path = PathBuf::from(&notes_dir);
+
+                fs::create_dir_all(&notes_path)?;
+
+                let note_file = notes_path.join(&filename);
+
+                if !note_file.exists() {
+                    fs::write(&note_file, "")?;
+                }
+
+                let editor = env::var("BARK_TEXT_EDITOR")
+                    .or_else(|_| env::var("EDITOR"))
+                    .unwrap_or_else(|_| "vim".to_string());
+
+                Command::new(&editor)
+                    .arg(&note_file)
+                    .status()?;
+
+                service::set_note(conn, &id, &filename)?;
+            }
+
             Commands::Sync { action } => {
                 match action {
                     SyncAction::Status => sync::status(bark)?,
@@ -421,14 +454,14 @@ _bark_custom()
     # complete subcommands
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W \
-            "add attach edit export import list open rm show tag sync completions complete" \
+            "add attach edit export import list note open rm show tag sync completions complete" \
             -- "$cur"))
         return
     fi
 
     # complete reference keys
     case "$prev" in
-        open|show|rm|edit|attach|export|tag)
+        note|open|show|rm|edit|attach|export|tag)
             COMPREPLY=(
                 $(compgen -W "$(bark complete refs "$cur")" -- "$cur")
             )

@@ -38,6 +38,19 @@ pub fn init_db(path: &str) -> Result<Connection> {
         "
     )?;
 
+    // Migration: add note_path column if not present
+    let has_note_path: bool = {
+        let mut stmt = conn.prepare("PRAGMA table_info(refs)")?;
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .collect();
+        cols.contains(&"note_path".to_string())
+    };
+    if !has_note_path {
+        conn.execute_batch("ALTER TABLE refs ADD COLUMN note_path TEXT")?;
+    }
+
     Ok(conn)
 }
 
@@ -305,4 +318,20 @@ pub fn complete_entry_keys(
     }
 
     Ok(result)
+}
+
+pub fn set_note_path(conn: &Connection, id: &str, path: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE refs SET note_path = ?1 WHERE id = ?2",
+        (path, id),
+    )?;
+    Ok(())
+}
+
+pub fn get_note_path(conn: &Connection, id: &str) -> Result<Option<String>> {
+    conn.query_row(
+        "SELECT note_path FROM refs WHERE id = ?1",
+        [id],
+        |row| row.get::<_, Option<String>>(0),
+    )
 }

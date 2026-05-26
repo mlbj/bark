@@ -65,6 +65,27 @@ pub fn status(bark: &Bark) -> Result<(), Box<dyn std::error::Error>> {
         print!("{}", String::from_utf8_lossy(&diff.stdout));
     }
 
+    // Check for uncommitted notes changes via git (only if notes live in the sync repo)
+    let notes_in_repo = dir.join("notes");
+    if notes_in_repo.exists() {
+        let notes_status = Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(["status", "--short", "notes/"])
+            .output()?;
+
+        let notes_str = String::from_utf8_lossy(&notes_status.stdout);
+        let notes_lines: Vec<&str> = notes_str.lines().filter(|l| !l.is_empty()).collect();
+        if notes_lines.is_empty() {
+            println!("Notes are in sync");
+        } else {
+            println!("\nNotes have uncommitted changes:");
+            for line in &notes_lines {
+                println!("  {}", line);
+            }
+        }
+    }
+
     // Check if remote is ahead of the sync dir
     let ahead = Command::new("git")
         .arg("-C")
@@ -112,24 +133,35 @@ pub fn push(bark: &Bark) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let toml_content = service::export_toml_by_tag(bark.conn(), None)?;
-
-    // Check if there are actual differences before writing/committing
-    let synced_path = dir.join("bark.toml");
-    if synced_path.exists() {
-        let synced = std::fs::read_to_string(&synced_path)?;
-        if synced == toml_content {
-            println!("Nothing to push: local db matches synced bark.toml");
-            return Ok(());
-        }
-    }
-
-    std::fs::write(&synced_path, toml_content)?;
+    std::fs::write(dir.join("bark.toml"), toml_content)?;
 
     Command::new("git")
         .arg("-C")
         .arg(&dir)
         .args(["add", "bark.toml"])
         .status()?;
+
+    // Stage notes if the directory exists inside the sync repo
+    let notes_in_repo = dir.join("notes");
+    if notes_in_repo.exists() {
+        Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(["add", "notes/"])
+            .status()?;
+    }
+
+    // Check if anything is actually staged before committing
+    let staged = Command::new("git")
+        .arg("-C")
+        .arg(&dir)
+        .args(["diff", "--cached", "--quiet"])
+        .status()?;
+
+    if staged.success() {
+        println!("Nothing to push: no changes staged");
+        return Ok(());
+    }
 
     Command::new("git")
         .arg("-C")

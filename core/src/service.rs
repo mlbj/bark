@@ -29,6 +29,9 @@ pub struct ExportReference {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<ExportContent>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -236,6 +239,13 @@ pub fn import_toml(conn: &Connection, content: &str) -> Result<()> {
                 db::insert_content(conn, &id, &c.kind, &c.location)?;
             }
         }
+
+        // note
+        if let Some(note) = r.note {
+            if !note.trim().is_empty() {
+                db::set_note_path(conn, &id, &note)?;
+            }
+        }
     }
 
     Ok(())
@@ -247,11 +257,10 @@ pub fn export_toml(conn: &Connection, input: &str) -> Result<String> {
     let bibtex = db::get_reference(conn, &id)?;
     let tags = db::get_tags_for_reference(conn, &id)?;
     let content = match db::get_content(conn, &id) {
-        Ok((kind, location)) => {
-            Some(ExportContent { kind, location })
-        }
+        Ok((kind, location)) => Some(ExportContent { kind, location }),
         Err(_) => None,
     };
+    let note = db::get_note_path(conn, &id).ok().flatten();
 
     let export = ExportV1 {
         version: 1,
@@ -261,6 +270,7 @@ pub fn export_toml(conn: &Connection, input: &str) -> Result<String> {
                 bibtex,
                 tags,
                 content,
+                note,
             }
         ],
     };
@@ -283,12 +293,14 @@ pub fn export_toml_by_tag(
             Ok((kind, location)) => Some(ExportContent { kind, location }),
             Err(_) => None,
         };
+        let note = db::get_note_path(conn, &id).ok().flatten();
 
         references.push(ExportReference {
             id: Some(id),
             bibtex,
             tags,
             content,
+            note,
         });
     }
 
@@ -305,4 +317,13 @@ pub fn complete_entry_keys(
     partial: &str,
 ) -> Result<Vec<String>> {
     db::complete_entry_keys(conn, partial)
+}
+
+pub fn set_note(conn: &Connection, id: &str, path: &str) -> Result<()> {
+    db::set_note_path(conn, id, path)
+}
+
+pub fn get_note(conn: &Connection, input: &str) -> Result<Option<String>> {
+    let id = db::resolve_reference(conn, input)?;
+    db::get_note_path(conn, &id)
 }
