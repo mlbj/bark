@@ -88,9 +88,42 @@ pub fn status(bark: &Bark) -> Result<(), Box<dyn std::error::Error>> {
 pub fn push(bark: &Bark) -> Result<(), Box<dyn std::error::Error>> {
     let dir = get_sync_dir()?;
 
+    // Fetch so we can detect if remote is ahead
+    Command::new("git")
+        .arg("-C")
+        .arg(&dir)
+        .args(["fetch", "--quiet"])
+        .status()?;
+
+    let ahead = Command::new("git")
+        .arg("-C")
+        .arg(&dir)
+        .args(["log", "HEAD..@{u}", "--oneline"])
+        .output()?;
+
+    let ahead_str = String::from_utf8_lossy(&ahead.stdout);
+    let ahead_lines: Vec<&str> = ahead_str.lines().filter(|l| !l.is_empty()).collect();
+    if !ahead_lines.is_empty() {
+        eprintln!(
+            "Aborting: remote has {} unpulled commit(s). Run `bark sync restore` first.",
+            ahead_lines.len()
+        );
+        std::process::exit(1);
+    }
+
     let toml_content = service::export_toml_by_tag(bark.conn(), None)?;
 
-    std::fs::write(dir.join("bark.toml"), toml_content)?;
+    // Check if there are actual differences before writing/committing
+    let synced_path = dir.join("bark.toml");
+    if synced_path.exists() {
+        let synced = std::fs::read_to_string(&synced_path)?;
+        if synced == toml_content {
+            println!("Nothing to push: local db matches synced bark.toml");
+            return Ok(());
+        }
+    }
+
+    std::fs::write(&synced_path, toml_content)?;
 
     Command::new("git")
         .arg("-C")
