@@ -21,6 +21,8 @@ pub use service::{
     set_note,
     get_note,
     ImportResult,
+    ExportV1,
+    ExportReference,
 };
 
 pub use reference::Reference;

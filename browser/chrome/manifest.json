@@ -1,0 +1,21 @@
+{
+  "name": "Bark chrome extension",
+  "description": "Import references to bark",
+  "version": "0.0",
+  "manifest_version": 3,
+
+  "permissions": [
+    "activeTab",
+    "nativeMessaging"
+  ],
+
+  "host_permissions": [
+    "http://localhost/*",
+    "https://arxiv.org/*"
+  ],
+
+  "action": {
+    "default_popup": "bark.html",
+    "default_icon": "bark.png"
+  }
+}

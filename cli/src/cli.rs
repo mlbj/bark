@@ -9,6 +9,8 @@ use std::io::{self, Read};
 use std::fs;
 use std::env;
 use std::path::{Path, PathBuf};
+
+use crate::inbox;
 use std::process::Command;
 
 use bark_core::{service, Bark};
@@ -120,6 +122,15 @@ pub enum Commands {
         action: SyncAction,
     },
 
+    /// Fetch references from the browser inbox
+    Fetch,
+
+    /// Install the Chrome extension native messaging host
+    InstallNativeHost {
+        /// Chrome extension ID (visible in chrome://extensions with developer mode on)
+        extension_id: String,
+    },
+
     /// Generate command completion file
     Completions {
         /// Target shell
@@ -131,6 +142,9 @@ pub enum Commands {
         kind: String,
         partial: Option<String>,
     },
+
+    #[command(hide = true)]
+    NativeHost,
 }
 
 #[derive(Subcommand)]
@@ -161,7 +175,7 @@ fn bibtex_template(entry_type: &str) -> String {
 }
 
 impl Cli {
-    pub fn run(self, bark: &Bark) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn run(self, bark: &Bark, inbox_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let conn = bark.conn();
 
         match self.command {
@@ -422,6 +436,19 @@ impl Cli {
                     .status()?;
 
                 service::set_note(conn, &id, &filename)?;
+            }
+
+            Commands::Fetch => {
+                let result = inbox::fetch_inbox(conn, inbox_dir)?;
+                if result.added == 0 && result.skipped == 0 {
+                    println!("Inbox is empty");
+                } else {
+                    println!("Imported: {} | Skipped: {}", result.added, result.skipped);
+                }
+            }
+
+            Commands::NativeHost | Commands::InstallNativeHost { .. } => {
+                unreachable!("handled before run")
             }
 
             Commands::Sync { action } => {
