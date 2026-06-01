@@ -4,8 +4,17 @@ use uuid::Uuid;
 
 use bark_core::{ExportV1, ExportReference, import_toml, ImportResult};
 
-pub fn write_to_inbox(inbox_dir: &Path, bibtex: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn write_to_inbox(
+    inbox_dir: &Path,
+    bibtex: &str,
+    pdf_url: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(inbox_dir)?;
+
+    let content = pdf_url.map(|url| bark_core::ExportContent {
+        kind: "url".to_string(),
+        location: url.to_string(),
+    });
 
     let export = ExportV1 {
         version: 1,
@@ -13,7 +22,7 @@ pub fn write_to_inbox(inbox_dir: &Path, bibtex: &str) -> Result<(), Box<dyn std:
             id: Some(Uuid::new_v4().to_string()),
             bibtex: bibtex.to_string(),
             tags: vec![],
-            content: None,
+            content,
             note: None,
         }],
     };

@@ -3,11 +3,11 @@ async function getCurrentTab() {
     return tab;
 }
 
-async function sendToBark(bibtex) {
+async function sendToBark(bibtex, pdf_url) {
     return new Promise((resolve) => {
         chrome.runtime.sendNativeMessage(
             "com.bark.host",
-            { bibtex },
+            { bibtex, pdf_url },
             (response) => {
                 if (chrome.runtime.lastError) {
                     const msg = chrome.runtime.lastError.message;
@@ -70,7 +70,7 @@ async function handleArxiv(url) {
     }
 
     setStatus("Sending to bark…");
-    const ok = await sendToBark(bibtex);
+    const ok = await sendToBark(bibtex, `https://arxiv.org/pdf/${arxivId}`);
     if (ok) setStatus("Imported!");
 }
 

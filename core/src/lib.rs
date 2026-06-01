@@ -23,6 +23,7 @@ pub use service::{
     ImportResult,
     ExportV1,
     ExportReference,
+    ExportContent,
 };
 
 pub use reference::Reference;
