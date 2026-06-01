@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::process::Command;
 use std::path::PathBuf;
 use std::env;
@@ -9,71 +10,103 @@ fn get_sync_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(PathBuf::from(dir))
 }
 
+fn refs_dir(sync_dir: &PathBuf) -> PathBuf {
+    sync_dir.join("refs")
+}
+
+fn git(sync_dir: &PathBuf, args: &[&str]) -> std::process::Output {
+    Command::new("git")
+        .arg("-C").arg(sync_dir)
+        .args(args)
+        .output()
+        .expect("git command failed")
+}
+
+fn remote_commits_ahead(sync_dir: &PathBuf) -> Vec<String> {
+    let out = git(sync_dir, &["log", "HEAD..@{u}", "--oneline"]);
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.to_string())
+        .collect()
+}
+
 pub fn restore(bark: &Bark) -> Result<(), Box<dyn std::error::Error>> {
-    // Delete everything first
-    db::purge(bark.conn());
+    db::purge(bark.conn())?;
 
     let dir = get_sync_dir()?;
 
     Command::new("git")
-        .arg("-C")
-        .arg(&dir)
+        .arg("-C").arg(&dir)
         .arg("pull")
         .status()?;
 
-    let toml_filename = dir.join("bark.toml");
-    let toml_content = std::fs::read_to_string(&toml_filename)?;
+    let refs_dir = refs_dir(&dir);
 
-    service::import_toml(
-        bark.conn(),
-        &toml_content
-    )?;
+    if refs_dir.exists() {
+        for entry in std::fs::read_dir(&refs_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("toml") {
+                let content = std::fs::read_to_string(&path)?;
+                service::import_ref_toml(bark.conn(), &content)?;
+            }
+        }
+    }
 
     println!("Sync restore complete");
-
     Ok(())
 }
 
 pub fn status(bark: &Bark) -> Result<(), Box<dyn std::error::Error>> {
     let dir = get_sync_dir()?;
 
-    // Fetch so we can detect if remote is ahead
-    Command::new("git")
-        .arg("-C")
-        .arg(&dir)
-        .args(["fetch", "--quiet"])
-        .status()?;
+    git(&dir, &["fetch", "--quiet"]);
 
-    // Export local db to a temp file
-    let tmp_path = env::temp_dir().join("bark_status_local.toml");
-    let local_toml = service::export_toml_by_tag(bark.conn(), None)?;
-    std::fs::write(&tmp_path, &local_toml)?;
+    // Export local DB refs to a temp dir
+    let tmp_dir = env::temp_dir().join("bark_status_local");
+    std::fs::create_dir_all(&tmp_dir)?;
+    for entry in std::fs::read_dir(&tmp_dir)? {
+        std::fs::remove_file(entry?.path()).ok();
+    }
 
-    let remote_toml = dir.join("bark.toml");
+    let all_refs = service::list_references_and_data(bark.conn(), None)?;
+    for r in &all_refs {
+        let content = service::export_ref_toml(bark.conn(), &r.id)?;
+        std::fs::write(tmp_dir.join(format!("{}.toml", r.id)), content)?;
+    }
 
-    // Diff local db export vs last synced bark.toml
+    let refs_dir = refs_dir(&dir);
+
+    if !refs_dir.exists() {
+        if all_refs.is_empty() {
+            println!("In sync (no refs on either side)");
+        } else {
+            println!("Remote has no refs/; local has {} reference(s) to push", all_refs.len());
+        }
+        std::fs::remove_dir_all(&tmp_dir).ok();
+        return Ok(());
+    }
+
     let diff = Command::new("diff")
-        .args(["--unified=2", "--label", "synced", "--label", "local"])
-        .arg(&remote_toml)
-        .arg(&tmp_path)
+        .args(["--recursive", "--unified=2"])
+        .arg(&refs_dir)
+        .arg(&tmp_dir)
         .output()?;
 
     if diff.stdout.is_empty() {
-        println!("Local db is in sync with {}", remote_toml.display());
+        println!("Local db is in sync with synced refs");
     } else {
-        println!("Local db differs from synced bark.toml:\n");
+        println!("Local db differs from synced refs:\n");
         print!("{}", String::from_utf8_lossy(&diff.stdout));
     }
 
-    // Check for uncommitted notes changes via git (only if notes live in the sync repo)
+    std::fs::remove_dir_all(&tmp_dir).ok();
+
+    // Notes
     let notes_in_repo = dir.join("notes");
     if notes_in_repo.exists() {
-        let notes_status = Command::new("git")
-            .arg("-C")
-            .arg(&dir)
-            .args(["status", "--short", "notes/"])
-            .output()?;
-
+        let notes_status = git(&dir, &["status", "--short", "notes/"]);
         let notes_str = String::from_utf8_lossy(&notes_status.stdout);
         let notes_lines: Vec<&str> = notes_str.lines().filter(|l| !l.is_empty()).collect();
         if notes_lines.is_empty() {
@@ -86,75 +119,71 @@ pub fn status(bark: &Bark) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Check if remote is ahead of the sync dir
-    let ahead = Command::new("git")
-        .arg("-C")
-        .arg(&dir)
-        .args(["log", "HEAD..@{u}", "--oneline"])
-        .output()?;
-
-    let ahead_str = String::from_utf8_lossy(&ahead.stdout);
-    let ahead_lines: Vec<&str> = ahead_str.lines().collect();
-    if !ahead_lines.is_empty() {
-        println!("\nRemote has {} unpulled commit(s):", ahead_lines.len());
-        for line in &ahead_lines {
+    // Remote ahead
+    let ahead = remote_commits_ahead(&dir);
+    if !ahead.is_empty() {
+        println!("\nRemote has {} unpulled commit(s):", ahead.len());
+        for line in &ahead {
             println!("  {}", line);
         }
     }
 
-    std::fs::remove_file(&tmp_path).ok();
     Ok(())
 }
 
 pub fn push(bark: &Bark) -> Result<(), Box<dyn std::error::Error>> {
     let dir = get_sync_dir()?;
 
-    // Fetch so we can detect if remote is ahead
-    Command::new("git")
-        .arg("-C")
-        .arg(&dir)
-        .args(["fetch", "--quiet"])
-        .status()?;
+    git(&dir, &["fetch", "--quiet"]);
 
-    let ahead = Command::new("git")
-        .arg("-C")
-        .arg(&dir)
-        .args(["log", "HEAD..@{u}", "--oneline"])
-        .output()?;
-
-    let ahead_str = String::from_utf8_lossy(&ahead.stdout);
-    let ahead_lines: Vec<&str> = ahead_str.lines().filter(|l| !l.is_empty()).collect();
-    if !ahead_lines.is_empty() {
+    let ahead = remote_commits_ahead(&dir);
+    if !ahead.is_empty() {
         eprintln!(
             "Aborting: remote has {} unpulled commit(s). Run `bark sync restore` first.",
-            ahead_lines.len()
+            ahead.len()
         );
         std::process::exit(1);
     }
 
-    let toml_content = service::export_toml_by_tag(bark.conn(), None)?;
-    std::fs::write(dir.join("bark.toml"), toml_content)?;
+    let refs_dir = refs_dir(&dir);
+    std::fs::create_dir_all(&refs_dir)?;
+
+    let all_refs = service::list_references_and_data(bark.conn(), None)?;
+    let current_ids: HashSet<String> = all_refs.iter().map(|r| r.id.clone()).collect();
+
+    for r in &all_refs {
+        let content = service::export_ref_toml(bark.conn(), &r.id)?;
+        std::fs::write(refs_dir.join(format!("{}.toml", r.id)), content)?;
+    }
+
+    // Remove files for refs that no longer exist in the DB
+    for entry in std::fs::read_dir(&refs_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("toml") {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                if !current_ids.contains(stem) {
+                    std::fs::remove_file(&path)?;
+                }
+            }
+        }
+    }
 
     Command::new("git")
-        .arg("-C")
-        .arg(&dir)
-        .args(["add", "bark.toml"])
+        .arg("-C").arg(&dir)
+        .args(["add", "refs/"])
         .status()?;
 
-    // Stage notes if the directory exists inside the sync repo
     let notes_in_repo = dir.join("notes");
     if notes_in_repo.exists() {
         Command::new("git")
-            .arg("-C")
-            .arg(&dir)
+            .arg("-C").arg(&dir)
             .args(["add", "notes/"])
             .status()?;
     }
 
-    // Check if anything is actually staged before committing
     let staged = Command::new("git")
-        .arg("-C")
-        .arg(&dir)
+        .arg("-C").arg(&dir)
         .args(["diff", "--cached", "--quiet"])
         .status()?;
 
@@ -164,18 +193,15 @@ pub fn push(bark: &Bark) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Command::new("git")
-        .arg("-C")
-        .arg(&dir)
+        .arg("-C").arg(&dir)
         .args(["commit", "-m", "bark sync"])
         .status()?;
 
     Command::new("git")
-        .arg("-C")
-        .arg(&dir)
+        .arg("-C").arg(&dir)
         .arg("push")
         .status()?;
 
     println!("Sync push complete");
-
     Ok(())
 }

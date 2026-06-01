@@ -312,6 +312,70 @@ pub fn export_toml_by_tag(
     Ok(toml::to_string_pretty(&export).unwrap())
 }
 
+pub fn export_ref_toml(conn: &Connection, id: &str) -> Result<String> {
+    let bibtex = db::get_reference(conn, id)?;
+    let tags = db::get_tags_for_reference(conn, id)?;
+    let content = match db::get_content(conn, id) {
+        Ok((kind, location)) => Some(ExportContent { kind, location }),
+        Err(_) => None,
+    };
+    let note = db::get_note_path(conn, id).ok().flatten();
+
+    let r = ExportReference {
+        id: Some(id.to_string()),
+        bibtex,
+        tags,
+        content,
+        note,
+    };
+
+    Ok(toml::to_string_pretty(&r).unwrap())
+}
+
+pub fn import_ref_toml(conn: &Connection, content: &str) -> Result<()> {
+    let r: ExportReference = toml::from_str(content)
+        .map_err(|_| rusqlite::Error::InvalidQuery)?;
+
+    let (entry_type, entry_key) =
+        parse_bibtex_header(&r.bibtex)
+            .ok_or(rusqlite::Error::InvalidQuery)?;
+
+    let title = extract_field_bibtex(&r.bibtex, "title");
+
+    let id = match &r.id {
+        Some(id) if !id.trim().is_empty() => id.clone(),
+        _ => uuid::Uuid::new_v4().to_string(),
+    };
+
+    if db::reference_exists(conn, &id)? {
+        db::remove_reference(conn, &id)?;
+    } else if let Ok(existing_id) = db::resolve_reference(conn, &entry_key) {
+        db::remove_reference(conn, &existing_id)?;
+    }
+
+    db::insert_reference(conn, &id, &r.bibtex, &entry_type, &entry_key, title.as_deref())?;
+
+    for tag in r.tags {
+        if !tag.trim().is_empty() {
+            db::insert_tag(conn, &id, &tag)?;
+        }
+    }
+
+    if let Some(c) = r.content {
+        if !c.kind.trim().is_empty() && !c.location.trim().is_empty() {
+            db::insert_content(conn, &id, &c.kind, &c.location)?;
+        }
+    }
+
+    if let Some(note) = r.note {
+        if !note.trim().is_empty() {
+            db::set_note_path(conn, &id, &note)?;
+        }
+    }
+
+    Ok(())
+}
+
 pub fn complete_entry_keys(
     conn: &Connection,
     partial: &str,

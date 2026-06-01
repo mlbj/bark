@@ -14,6 +14,8 @@ pub use service::{
     import_toml,
     export_toml,
     export_toml_by_tag,
+    export_ref_toml,
+    import_ref_toml,
     resolve_reference,
     get_reference,
     set_note,
