@@ -29,16 +29,32 @@ fn handle_native_host(inbox_dir: &Path) -> Result<(), Box<dyn std::error::Error>
     std::io::stdin().read_exact(&mut msg_buf)?;
 
     let response = match serde_json::from_slice::<serde_json::Value>(&msg_buf) {
-        Ok(msg) => match msg.get("bibtex").and_then(|v| v.as_str()) {
-            Some(bibtex) => {
-                let pdf_url = msg.get("pdf_url").and_then(|v| v.as_str());
-                match inbox::write_to_inbox(inbox_dir, bibtex, pdf_url) {
-                    Ok(_) => serde_json::json!({"success": true}),
-                    Err(e) => serde_json::json!({"success": false, "error": e.to_string()}),
+        Ok(msg) => {
+            let action = msg.get("action").and_then(|v| v.as_str()).unwrap_or("");
+            match action {
+                "preview" => {
+                    let bibtex = msg.get("bibtex").and_then(|v| v.as_str());
+                    let pdf_url = msg.get("pdf_url").and_then(|v| v.as_str());
+                    match bibtex {
+                        Some(b) => match inbox::make_toml(b, pdf_url) {
+                            Ok(toml) => serde_json::json!({"toml": toml}),
+                            Err(e) => serde_json::json!({"error": e.to_string()}),
+                        },
+                        None => serde_json::json!({"error": "missing bibtex field"}),
+                    }
                 }
+                "import" => {
+                    match msg.get("toml").and_then(|v| v.as_str()) {
+                        Some(toml) => match inbox::write_raw_toml_to_inbox(inbox_dir, toml) {
+                            Ok(_) => serde_json::json!({"success": true}),
+                            Err(e) => serde_json::json!({"success": false, "error": e.to_string()}),
+                        },
+                        None => serde_json::json!({"success": false, "error": "missing toml field"}),
+                    }
+                }
+                _ => serde_json::json!({"success": false, "error": format!("unknown action: {:?}", action)}),
             }
-            None => serde_json::json!({"success": false, "error": "missing bibtex field"}),
-        },
+        }
         Err(e) => serde_json::json!({"success": false, "error": e.to_string()}),
     };
 

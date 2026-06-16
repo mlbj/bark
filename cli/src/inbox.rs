@@ -4,13 +4,10 @@ use uuid::Uuid;
 
 use bark_core::{ExportV1, ExportReference, import_toml, ImportResult};
 
-pub fn write_to_inbox(
-    inbox_dir: &Path,
+pub fn make_toml(
     bibtex: &str,
     pdf_url: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    std::fs::create_dir_all(inbox_dir)?;
-
+) -> Result<String, Box<dyn std::error::Error>> {
     let content = pdf_url.map(|url| bark_core::ExportContent {
         kind: "url".to_string(),
         location: url.to_string(),
@@ -27,10 +24,16 @@ pub fn write_to_inbox(
         }],
     };
 
-    let content = toml::to_string_pretty(&export)?;
-    let filename = format!("{}.toml", Uuid::new_v4());
-    std::fs::write(inbox_dir.join(filename), content)?;
+    Ok(toml::to_string_pretty(&export)?)
+}
 
+pub fn write_raw_toml_to_inbox(
+    inbox_dir: &Path,
+    toml: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(inbox_dir)?;
+    let filename = format!("{}.toml", Uuid::new_v4());
+    std::fs::write(inbox_dir.join(filename), toml)?;
     Ok(())
 }
 
