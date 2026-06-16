@@ -56,6 +56,8 @@ async function showEditor(bibtex, pdf_url) {
     };
 }
 
+// --- arXiv source ---
+
 function extractArxivId(url) {
     const m = url.match(/arxiv\.org\/(?:abs|pdf)\/([^?#]+?)(?:\.pdf)?$/);
     return m ? m[1] : null;
@@ -77,15 +79,23 @@ async function handleArxiv(url) {
     await showEditor(bibtex, `https://arxiv.org/pdf/${arxivId}`);
 }
 
+// --- source registry ---
+
+const SOURCES = [
+    {
+        matches: url => url.includes("arxiv.org"),
+        handle: handleArxiv,
+    },
+];
+
 async function main() {
     const tab = await getCurrentTab();
     if (!tab?.url) { setStatus("No active tab."); return; }
 
-    if (tab.url.includes("arxiv.org")) {
-        await handleArxiv(tab.url);
-    } else {
-        setStatus("Not an arXiv page.");
-    }
+    const source = SOURCES.find(s => s.matches(tab.url));
+    if (!source) { setStatus("Page not supported."); return; }
+
+    await source.handle(tab.url);
 }
 
 main();
